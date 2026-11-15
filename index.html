@@ -210,6 +210,22 @@ select,input[type=text],input[type=number],textarea{font-size:16px!important;car
 textarea{font-size:16px!important}
 input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#fff}
 
+.si.drg{touch-action:pan-y;-webkit-touch-callout:none}
+.grip{width:30px;height:40px;display:grid;place-items:center;font-size:22px;color:var(--mut);touch-action:none;flex:none;cursor:grab;margin-left:-4px}
+.si.dragging{position:relative;z-index:3;border-color:var(--acc);background:var(--panel);box-shadow:0 12px 30px rgba(0,0,0,.6),0 0 0 1px var(--acc);transition:none}
+.sorting{touch-action:none}
+.sorting .si:not(.dragging){transition:transform .12s}
+
+.fsearch{padding:13px;font-weight:700;background:var(--acc);color:#140a02;border:none;font-size:15px}
+.fres{display:flex;flex-direction:column;gap:6px}
+.fres:empty{display:none}
+.fhit{display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;text-align:left;padding:9px 12px;gap:0 10px;background:var(--panel)}
+.fhit .t{font-size:14px;font-weight:600;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fhit .a{font-size:12px;color:var(--mut);grid-row:2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fhit .b{grid-row:1/3;grid-column:2;align-self:center;font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:700;color:var(--acc2)}
+.fhit.nobpm{opacity:.5}.fhit.nobpm .b{font-family:inherit;font-size:12px;color:var(--mut)}
+.fhit.sel{border-color:var(--acc);background:rgba(var(--accRGB),.14)}
+
 /* installed app: respect notch and home bar */
 .view{padding-top:calc(12px + env(safe-area-inset-top));padding-bottom:calc(var(--tabh) + 18px + env(safe-area-inset-bottom))}
 .tabs{height:calc(var(--tabh) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom)}
@@ -370,6 +386,7 @@ input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#f
 
 <div class="modal" id="modal"><div class="mbox" id="mbox"></div></div>
 
+<script>window.PWA = true;</script>
 <script>
 (function(){
 const $ = s => document.querySelector(s);
@@ -683,22 +700,83 @@ function renderSets(){
   const arr = listSongs(l);
   if (!arr.length) box.innerHTML = '<div class="empty">Este set list está vacío.<br>Toca “Agregar canciones de Songs”.</div>';
   arr.forEach((s, i) => {
-    const r = document.createElement('div'); r.className = 'si';
-    r.innerHTML = `<span class="num">${i+1}</span><div class="main"><div class="nm"></div><div class="meta">${meta(s)}</div></div>
-      <button data-a="up" aria-label="Subir">▲</button><button data-a="down" aria-label="Bajar">▼</button><button data-a="rm" aria-label="Quitar">✕</button>`;
+    const r = document.createElement('div'); r.className = 'si drg'; r.dataset.i = i;
+    r.innerHTML = `<span class="grip" aria-label="Arrastrar">≡</span><span class="num">${i+1}</span><div class="main"><div class="nm"></div><div class="meta">${meta(s)}</div></div>
+      <button data-a="rm" aria-label="Quitar">✕</button>`;
     r.querySelector('.nm').textContent = s.name;
-    r.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
-      const ids = l.songIds, a = b.dataset.a;
-      const liveId = L.list === l.id ? (liveSong() || {}).id : null;
-      if (a === 'up' && i > 0) [ids[i-1], ids[i]] = [ids[i], ids[i-1]];
-      if (a === 'down' && i < ids.length - 1) [ids[i+1], ids[i]] = [ids[i], ids[i+1]];
-      if (a === 'rm') ids.splice(i, 1);
+    r.querySelector('[data-a=rm]').addEventListener('click', () => {
+      const ids = l.songIds, liveId = L.list === l.id ? (liveSong() || {}).id : null;
+      ids.splice(i, 1);
       if (liveId){ const k = ids.indexOf(liveId); L.idx = k >= 0 ? k : clamp(L.idx, 0, Math.max(0, ids.length - 1)); }
       save(); renderSets();
-    }));
+    });
     box.appendChild(r);
   });
+  if (arr.length > 1) box.insertAdjacentHTML('beforeend', '<div class="note" style="text-align:center">Mantén presionada una canción (o arrastra desde ≡) para moverla.</div>');
+  enableDrag(box, order => {
+    const ids = l.songIds, liveId = L.list === l.id ? (liveSong() || {}).id : null;
+    l.songIds = order.map(k => ids[k]);
+    if (liveId){ const k = l.songIds.indexOf(liveId); if (k >= 0) L.idx = k; }
+    save(); renderSets();
+  });
 }
+
+/* ---------- Drag to reorder ---------- */
+let dragState = null;
+function enableDrag(box, onDrop){
+  box.querySelectorAll('.si.drg').forEach(row => {
+    let timer = null, y0 = 0;
+    const begin = e => {
+      const rect = row.getBoundingClientRect();
+      dragState = { box, row, onDrop, grab:e.clientY - rect.top, startOrder:order(box) };
+      row.classList.add('dragging'); box.classList.add('sorting');
+      try{ navigator.vibrate && navigator.vibrate(12); }catch(_){}
+      moveDrag(e.clientY);
+    };
+    row.querySelector('.grip').addEventListener('pointerdown', e => { e.preventDefault(); begin(e); });
+    row.addEventListener('pointerdown', e => {
+      if (e.target.closest('button,.grip')) return;
+      y0 = e.clientY; clearTimeout(timer);
+      timer = setTimeout(() => { timer = null; begin(e); }, 320);
+    });
+    row.addEventListener('pointermove', e => { if (timer && Math.abs(e.clientY - y0) > 8){ clearTimeout(timer); timer = null; } });
+    ['pointerup','pointercancel','pointerleave'].forEach(ev => row.addEventListener(ev, () => { clearTimeout(timer); timer = null; }));
+    row.addEventListener('contextmenu', e => e.preventDefault());
+  });
+}
+const order = box => Array.from(box.querySelectorAll('.si.drg')).map(r => +r.dataset.i);
+function moveDrag(y){
+  const d = dragState; if (!d) return;
+  const r = d.row;
+  r.style.transform = '';
+  let moved = true;
+  while (moved){
+    moved = false;
+    const prev = r.previousElementSibling, next = r.nextElementSibling;
+    if (prev && prev.classList.contains('drg')){ const b = prev.getBoundingClientRect(); if (y - d.grab < b.top + b.height/2){ d.box.insertBefore(r, prev); moved = true; continue; } }
+    if (next && next.classList.contains('drg')){ const b = next.getBoundingClientRect(); if (y - d.grab + r.offsetHeight > b.top + b.height/2){ d.box.insertBefore(next, r); moved = true; } }
+  }
+  const top = r.getBoundingClientRect().top;
+  r.style.transform = `translateY(${y - d.grab - top}px)`;
+  d.box.querySelectorAll('.si.drg').forEach((x, k) => { const n = x.querySelector('.num'); if (n) n.textContent = k + 1; });
+}
+function endDrag(){
+  const d = dragState; if (!d) return;
+  dragState = null;
+  d.row.classList.remove('dragging'); d.box.classList.remove('sorting'); d.row.style.transform = '';
+  const now = order(d.box);
+  if (now.join() !== d.startOrder.join()) d.onDrop(now);
+}
+document.addEventListener('pointermove', e => {
+  if (!dragState) return;
+  e.preventDefault(); moveDrag(e.clientY);
+  if (e.clientY < 90) window.scrollBy(0, -10);
+  else if (e.clientY > window.innerHeight - 120) window.scrollBy(0, 10);
+}, { passive:false });
+document.addEventListener('touchmove', e => { if (dragState) e.preventDefault(); }, { passive:false });
+document.addEventListener('pointerup', endDrag);
+document.addEventListener('pointercancel', endDrag);
+
 function renderAll(){
   ({ practice:renderPractice, live:renderLive, songs:renderSongs, sets:renderSets })[S.tab]();
 }
@@ -933,6 +1011,34 @@ function wireFinder(box, el){
     el.querySelector('.fy').href = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(q);
   };
   links(); nameIn.addEventListener('input', links);
+  const res = el.querySelector('.fres');
+  el.querySelector('.fsearch').addEventListener('click', async () => {
+    const q = (nameIn.value || '').trim();
+    if (!q || /^Canción \d+$/.test(q)){ st.textContent = 'Primero escribe el nombre de la canción (mejor si agregas el artista).'; nameIn.focus(); return; }
+    if (!window.PWA){ st.textContent = 'La búsqueda automática funciona en tu app instalada (Tempo-Frank). Aquí usa TAP o “Buscar en Google”.'; return; }
+    const btn = el.querySelector('.fsearch'); btn.disabled = true; btn.textContent = 'Buscando…'; res.innerHTML = ''; st.textContent = '';
+    try{
+      const list = await findTempo(q);
+      if (!list.length){ st.textContent = 'No encontré esa canción. Prueba con “artista canción” o usa TAP.'; return; }
+      const withBpm = list.filter(x => x.bpm);
+      list.forEach(x => {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'fhit' + (x.bpm ? '' : ' nobpm');
+        b.innerHTML = '<span class="t"></span><span class="a"></span><span class="b"></span>';
+        b.querySelector('.t').textContent = x.title; b.querySelector('.a').textContent = x.artist || '';
+        b.querySelector('.b').textContent = x.bpm ? x.bpm + ' BPM' : 'sin dato';
+        if (x.bpm) b.addEventListener('click', () => {
+          setB(x.bpm); if (nameIn.value.trim() === q || list.some(y => y.title === nameIn.value)) nameIn.value = x.title; links(); res.querySelectorAll('.fhit').forEach(h => h.classList.toggle('sel', h === b));
+          st.textContent = `Tempo de “${x.title}”: ${x.bpm} BPM. Si suena al doble o a la mitad, usa ×2 o ×½.`;
+        });
+        res.appendChild(b);
+      });
+      if (withBpm.length){
+        const first = res.querySelector('.fhit:not(.nobpm)'); first.click();
+        st.textContent += ' Toca otro resultado si no es la versión correcta.';
+      } else st.textContent = 'Encontré la canción, pero no tiene tempo registrado. Usa TAP.';
+    }catch(e){ st.textContent = 'No pude conectarme para buscar. Revisa tu internet o usa TAP.'; }
+    finally{ btn.disabled = false; btn.textContent = '🔎 Buscar tempo'; }
+  });
   let tp = [];
   el.querySelector('.ftap').addEventListener('pointerdown', e => {
     e.preventDefault();
@@ -955,6 +1061,24 @@ function wireFinder(box, el){
       links();
     }catch(e){ st.textContent = 'No pude detectar el tempo de ese archivo. Prueba con TAP.'; }
   });
+}
+function jsonp(url, ms){
+  return new Promise((resolve, reject) => {
+    const cb = 'dz' + Math.random().toString(36).slice(2), sc = document.createElement('script');
+    const done = () => { try{ delete window[cb]; }catch(_){ window[cb] = undefined; } sc.remove(); clearTimeout(t); };
+    const t = setTimeout(() => { done(); reject(new Error('timeout')); }, ms || 9000);
+    window[cb] = d => { done(); resolve(d); };
+    sc.onerror = () => { done(); reject(new Error('net')); };
+    sc.src = url + (url.includes('?') ? '&' : '?') + 'output=jsonp&callback=' + cb;
+    document.head.appendChild(sc);
+  });
+}
+// Looks the song up in Deezer's public catalogue and reads each match's BPM
+async function findTempo(q){
+  const r = await jsonp('https://api.deezer.com/search?limit=6&q=' + encodeURIComponent(q));
+  const tracks = (r && r.data || []).slice(0, 6);
+  const det = await Promise.all(tracks.map(t => jsonp('https://api.deezer.com/track/' + t.id).catch(() => null)));
+  return tracks.map((t, i) => ({ title:t.title, artist:t.artist && t.artist.name, bpm:det[i] && det[i].bpm ? Math.round(det[i].bpm) : 0 }));
 }
 function decodeAudio(buf){
   ensureCtx();
@@ -1005,9 +1129,11 @@ function field(f){
   const lbl = f.l ? `<span>${esc(f.l)}</span>` : '';
   if (f.t === 'finder') return `<div class="finder" data-k="finder">
     <div class="fh">Encontrar el tempo</div>
+    <button type="button" class="fsearch">🔎 Buscar tempo</button>
+    <div class="fres"></div>
     <div class="frow"><button type="button" class="ftap">TAP</button><div class="fx">Toca al ritmo mientras escuchas la canción (en otro equipo o parlante). Se llena el BPM solo.</div></div>
     <div class="frow"><button type="button" class="fhalf">BPM ×½</button><button type="button" class="fdbl">BPM ×2</button></div>
-    <div class="frow"><a class="flink fg" target="_blank" rel="noopener">🔎 Buscar BPM en Google</a><a class="flink fy" target="_blank" rel="noopener">▶ Abrir en YouTube</a></div>
+    <div class="frow"><a class="flink fg" target="_blank" rel="noopener">Buscar en Google</a><a class="flink fy" target="_blank" rel="noopener">▶ Abrir en YouTube</a></div>
     <label class="ffile">🎵 Detectar desde un archivo de audio<input type="file" accept="audio/*"></label>
     <div class="fst"></div>
   </div>`;
