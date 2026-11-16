@@ -371,8 +371,9 @@ input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#f
     <button data-snd="click">Clic</button><button data-snd="wood">Madera</button><button data-snd="beep">Beep</button>
     <button data-snd="cowbell">Cencerro</button><button data-snd="hat">Hi-hat</button><button data-snd="rim">Aro</button>
   </div>
-  <div class="clbl">Volumen general</div>
-  <input type="range" id="vol" min="0" max="100">
+  <div class="crow"><span class="clbl">Volumen</span><span class="clbl" id="volTxt" style="color:var(--acc2)">100%</span></div>
+  <input type="range" id="vol" min="0" max="300" step="5">
+  <div class="note" style="margin-top:-6px">Sobre 100% es refuerzo para in-ear o parlantes: el limitador evita que distorsione.</div>
   <div class="clbl">Volumen de subdivisiones</div>
   <input type="range" id="subvol" min="0" max="100">
   <div class="clbl">Destello de luz en pantalla</div>
@@ -418,7 +419,7 @@ function cleanSong(s){
 }
 
 /* ---------- State ---------- */
-let S = { sound:'click', volume:0.8, subVol:0.5, flashMode:'off', flashInt:0.25, wake:true, theme:'naranja', tab:'practice' };
+let S = { sound:'click', volume:1.5, subVol:0.5, flashMode:'off', flashInt:0.25, wake:true, theme:'naranja', tab:'practice' };
 let P = { bpm:120, beats:4, den:4, subdiv:1, accents:[2,1,1,1] };
 // D: library of songs + set lists that reference songs by id
 let D = { songs:[], lists:[] };
@@ -431,7 +432,7 @@ function load(){
     if (d){
       if (d.settings){
         const o = d.settings;
-        ['sound','volume','subVol','flashMode','flashInt','wake','theme','tab'].forEach(k => { if (o[k] !== undefined) S[k] = o[k]; });
+        ['sound','volume','subVol','flashMode','flashInt','wake','theme','tab','volV2'].forEach(k => { if (o[k] !== undefined) S[k] = o[k]; });
         if (!d.practice && o.bpm) P = { bpm:o.bpm, beats:o.beats || 4, den:o.den || 4, subdiv:o.subdiv || 1, accents:o.accents };
       }
       if (d.practice) Object.assign(P, d.practice);
@@ -450,6 +451,8 @@ function load(){
   if (!Array.isArray(D.lists)) D.lists = [];
   D.songs = D.songs.map(cleanSong);
   D.lists.forEach(l => { l.songIds = (l.songIds || []).filter(id => D.songs.some(s => s.id === id)); });
+  if (!S.volV2){ S.volume = Math.max(S.volume || 0, 1.5); S.volV2 = true; }
+  S.volume = clamp(+S.volume || 1, 0, 3);
   if (!['off','one','all'].includes(S.flashMode)) S.flashMode = 'off';
   if (!TABS.includes(S.tab)) S.tab = 'practice';
   if (!DENS.includes(P.den)) P.den = 4;
@@ -476,7 +479,11 @@ function ensureCtx(){
   if (!ctx){
     const AC = window.AudioContext || window.webkitAudioContext;
     ctx = new AC({ latencyHint:'interactive' });
-    master = ctx.createGain(); master.gain.value = S.volume; master.connect(ctx.destination);
+    // volume (up to 300%) -> limiter, so boosting makes the click louder without distorting
+    master = ctx.createGain(); master.gain.value = S.volume;
+    const lim = ctx.createDynamicsCompressor();
+    lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.06;
+    master.connect(lim); lim.connect(ctx.destination);
     const len = Math.floor(ctx.sampleRate * 0.3);
     noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
@@ -499,24 +506,24 @@ function voice(t, level){
   const hi = level === 2, sub = level < 1;
   const g = ctx.createGain(); g.connect(master);
   switch (S.sound){
-    case 'click': osc('square', hi ? 2000 : sub ? 1000 : 1400, t, 0.05, g); env(g, t, amp*0.45, 0.03); break;
-    case 'wood': { const f = hi ? 1650 : sub ? 950 : 1250; const o = osc('sine', f*1.6, t, 0.09, g); o.frequency.exponentialRampToValueAtTime(f, t + 0.012); env(g, t, amp, 0.065); break; }
-    case 'beep': osc('sine', hi ? 1760 : sub ? 660 : 880, t, 0.11, g); env(g, t, amp*0.8, 0.09); break;
+    case 'click': osc('square', hi ? 2000 : sub ? 1000 : 1400, t, 0.05, g); env(g, t, amp*0.98, 0.035); break;
+    case 'wood': { const f = hi ? 1650 : sub ? 950 : 1250; const o = osc('sine', f*1.6, t, 0.09, g); o.frequency.exponentialRampToValueAtTime(f, t + 0.012); env(g, t, amp*0.97, 0.065); break; }
+    case 'beep': osc('sine', hi ? 1760 : sub ? 660 : 880, t, 0.11, g); env(g, t, amp*0.97, 0.09); break;
     case 'cowbell': {
       const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = hi ? 950 : 760; bp.Q.value = 3; bp.connect(g);
       const k = sub ? 0.8 : hi ? 1.1 : 1; osc('square', 540*k, t, 0.3, bp); osc('square', 800*k, t, 0.3, bp);
-      env(g, t, amp*0.9, hi ? 0.25 : 0.16); break;
+      env(g, t, amp*0.8, hi ? 0.25 : 0.16); break;
     }
     case 'hat': {
       const s = ctx.createBufferSource(); s.buffer = noiseBuf;
       const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = hi ? 5500 : 8000;
-      s.connect(hp); hp.connect(g); env(g, t, amp*0.9, hi ? 0.12 : 0.05); s.start(t); s.stop(t + 0.15); break;
+      s.connect(hp); hp.connect(g); env(g, t, amp*0.85, hi ? 0.12 : 0.05); s.start(t); s.stop(t + 0.15); break;
     }
     case 'rim': {
       const s = ctx.createBufferSource(); s.buffer = noiseBuf;
       const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = hi ? 2400 : sub ? 1500 : 1900; bp.Q.value = 6;
       s.connect(bp); bp.connect(g); osc('triangle', hi ? 520 : 420, t, 0.04, g);
-      env(g, t, amp*1.4, 0.045); s.start(t); s.stop(t + 0.06); break;
+      env(g, t, amp*1.22, 0.045); s.start(t); s.stop(t + 0.06); break;
     }
   }
 }
@@ -974,7 +981,7 @@ Object.entries(THEMES).forEach(([k, t]) => {
 function renderSettings(){
   $$('#themes button').forEach(b => b.classList.toggle('act', b.dataset.t === S.theme));
   $$('#sounds button').forEach(b => b.classList.toggle('act', b.dataset.snd === S.sound));
-  $('#vol').value = Math.round(S.volume * 100);
+  $('#vol').value = Math.round(S.volume * 100); $('#volTxt').textContent = Math.round(S.volume * 100) + '%';
   $('#subvol').value = Math.round(S.subVol * 100);
   $$('#flashSeg button').forEach(b => b.classList.toggle('act', b.dataset.f === S.flashMode));
   $('#flashInt').value = Math.round(S.flashInt * 100);
@@ -990,7 +997,7 @@ $$('#sounds button').forEach(b => b.addEventListener('click', () => {
   S.sound = b.dataset.snd; save(); renderSettings();
   ensureCtx(); const t = ctx.currentTime + 0.03; voice(t, 2); voice(t + 0.28, 1);
 }));
-$('#vol').addEventListener('input', e => { S.volume = e.target.value / 100; if (master) master.gain.value = S.volume; save(); });
+$('#vol').addEventListener('input', e => { S.volume = e.target.value / 100; $('#volTxt').textContent = e.target.value + '%'; if (master) master.gain.value = S.volume; save(); });
 $('#subvol').addEventListener('input', e => { S.subVol = e.target.value / 100; save(); });
 $$('#flashSeg button').forEach(b => b.addEventListener('click', () => { S.flashMode = b.dataset.f; save(); renderSettings(); }));
 $('#flashInt').addEventListener('input', e => {
