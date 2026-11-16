@@ -381,6 +381,11 @@ input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#f
     <button data-f="off">Apagado</button><button data-f="one">Solo tiempo 1</button><button data-f="all">Todos</button>
   </div>
   <div id="flashIntBox"><div class="clbl">Intensidad del destello</div><input type="range" id="flashInt" min="5" max="70"></div>
+  <div class="clbl">Salida de audio</div>
+  <div class="sounds" id="outSeg">
+    <button data-o="stereo">Normal</button><button data-o="left">Solo izquierdo</button><button data-o="bal">Cable TRS</button>
+  </div>
+  <div class="note" style="margin-top:-6px">Usa <b>Cable TRS</b> si conectas el celular con un plug de 6.3 de dos anillos a una entrada balanceada (consola, ADA8200, interfaz): el clic llega completo y más fuerte. Con audífonos normales deja <b>Normal</b>.</div>
   <div class="toggle"><span>Mantener pantalla encendida</span><button class="sw" id="wakeSw"></button></div>
   <div class="note">En iPhone, si no escuchas nada, desactiva el modo silencio. Para instalarla: en Safari toca ••• → Compartir → “Añadir a pantalla de inicio”.</div>
 </div>
@@ -432,7 +437,7 @@ function load(){
     if (d){
       if (d.settings){
         const o = d.settings;
-        ['sound','volume','subVol','flashMode','flashInt','wake','theme','tab','volV2'].forEach(k => { if (o[k] !== undefined) S[k] = o[k]; });
+        ['sound','volume','subVol','flashMode','flashInt','wake','theme','tab','volV2','out'].forEach(k => { if (o[k] !== undefined) S[k] = o[k]; });
         if (!d.practice && o.bpm) P = { bpm:o.bpm, beats:o.beats || 4, den:o.den || 4, subdiv:o.subdiv || 1, accents:o.accents };
       }
       if (d.practice) Object.assign(P, d.practice);
@@ -474,7 +479,15 @@ const srcFor = t => t === 'live' ? 'live' : 'practice';
 const cfg = () => { const src = playing ? playSrc : srcFor(S.tab); return src === 'live' ? liveSong() : P; };
 
 /* ---------- Audio ---------- */
-let ctx = null, master = null, noiseBuf = null;
+let ctx = null, master = null, noiseBuf = null, limNode = null, outMerger = null, outInv = null;
+function applyOut(){
+  if (!limNode) return;
+  try{ limNode.disconnect(); outInv.disconnect(); }catch(_){}
+  outInv.connect(outMerger, 0, 1);
+  if (S.out === 'left'){ limNode.connect(outMerger, 0, 0); }
+  else if (S.out === 'bal'){ limNode.connect(outMerger, 0, 0); limNode.connect(outInv); }
+  else { limNode.connect(outMerger, 0, 0); limNode.connect(outMerger, 0, 1); }
+}
 function ensureCtx(){
   if (!ctx){
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -483,7 +496,11 @@ function ensureCtx(){
     master = ctx.createGain(); master.gain.value = S.volume;
     const lim = ctx.createDynamicsCompressor();
     lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.06;
-    master.connect(lim); lim.connect(ctx.destination);
+    master.connect(lim);
+    // output routing: both sides, left only, or 'balanced' (right = inverted left) for TRS cables into balanced inputs
+    outMerger = ctx.createChannelMerger(2); outInv = ctx.createGain(); outInv.gain.value = -1;
+    outMerger.connect(ctx.destination); limNode = lim;
+    applyOut();
     const len = Math.floor(ctx.sampleRate * 0.3);
     noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
@@ -987,6 +1004,7 @@ function renderSettings(){
   $('#flashInt').value = Math.round(S.flashInt * 100);
   $('#flashIntBox').style.display = S.flashMode === 'off' ? 'none' : '';
   $('#wakeSw').classList.toggle('on', S.wake);
+  $$('#outSeg button').forEach(b => b.classList.toggle('act', b.dataset.o === (S.out || 'stereo')));
 }
 function openSet(){ renderSettings(); $('#backdrop').classList.add('open'); $('#setSheet').classList.add('open'); }
 function closeSet(){ $('#backdrop').classList.remove('open'); $('#setSheet').classList.remove('open'); }
@@ -1005,6 +1023,7 @@ $('#flashInt').addEventListener('input', e => {
   flashEl.style.background = 'var(--acc)';
   try{ flashEl.animate([{ opacity:S.flashInt }, { opacity:0 }], { duration:250 }); }catch(_){}
 });
+$$('#outSeg button').forEach(b => b.addEventListener('click', () => { S.out = b.dataset.o; save(); renderSettings(); applyOut(); }));
 $('#wakeSw').addEventListener('click', () => { S.wake = !S.wake; save(); renderSettings(); if (playing){ S.wake ? lockOn() : lockOff(); } });
 
 
