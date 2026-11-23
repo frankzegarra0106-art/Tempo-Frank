@@ -270,6 +270,21 @@ input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#f
 .ctrl button{height:52px}
 .prow .big{font-size:66px}
 
+/* Live player v10: full-width title, chips beside the beat lights */
+.player{gap:6px}
+.ltop{display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+.ltop .lpos{text-align:left;font-size:12px;padding-bottom:6px}
+.lbpmw{display:flex;align-items:baseline;gap:6px;flex:none}
+.lbpmw .big{font-size:54px;line-height:.85}
+.lbpmw .bpmlbl{font-size:11px}
+.player .lname{width:100%;text-align:left;font-size:22px;line-height:1.2;min-height:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;word-break:normal}
+.lrow{display:flex;align-items:center;gap:8px;min-width:0}
+.player .lrow .chip{font-size:28px;padding:2px 12px;flex:none;line-height:1.1}
+.player .lrow .dots{flex:1;min-width:0;height:44px;justify-content:flex-start;padding:0}
+.player .lrow .dot{max-width:46px}
+.player .lrow .dot.l2{height:44px}.player .lrow .dot.l1,.player .lrow .dot.l0{height:30px}
+.lsongs .grip{width:24px;height:32px;font-size:20px}
+
 /* installed app: respect notch and home bar */
 .view{padding-top:calc(12px + env(safe-area-inset-top));padding-bottom:calc(var(--tabh) + 18px + env(safe-area-inset-bottom))}
 .tabs{height:calc(var(--tabh) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom)}
@@ -346,15 +361,9 @@ input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#f
       <button class="icon openSet" aria-label="Ajustes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
     </div>
     <div class="player">
-      <div class="prow">
-        <div class="pinfo">
-          <div class="lpos" id="lPos"></div>
-          <div class="lname" id="lName"></div>
-          <div class="lmeta"><span class="chip" id="lSig">4/4</span><span class="chip" id="lSub">♩</span></div>
-        </div>
-        <div style="text-align:center"><div class="big" id="lBpm">120</div><div class="bpmlbl">BPM</div></div>
-      </div>
-      <div class="dots" id="lDots"></div>
+      <div class="ltop"><div class="lpos" id="lPos"></div><div class="lbpmw"><span class="big" id="lBpm">120</span><span class="bpmlbl">BPM</span></div></div>
+      <div class="lname" id="lName"></div>
+      <div class="lrow"><span class="chip" id="lSig">4/4</span><span class="chip" id="lSub">♩</span><div class="dots" id="lDots"></div></div>
     </div>
     <div class="ctrl">
       <button id="lPrev" aria-label="Retroceder"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
@@ -441,7 +450,7 @@ input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#f
   </div>
   <div class="note" style="margin-top:-6px">Suena con un tono distinto y muestra la cuenta en grande. Con ↺ vuelves a empezar con cuenta sin detener el metrónomo.</div>
   <div class="toggle"><span>Mantener pantalla encendida</span><button class="sw" id="wakeSw"></button></div>
-  <div class="note" style="text-align:center;color:var(--acc2)">Versión 9</div>
+  <div class="note" style="text-align:center;color:var(--acc2)">Versión 10</div>
   <div class="note">En iPhone, si no escuchas nada, desactiva el modo silencio. Para instalarla: en Safari toca ••• → Compartir → “Añadir a pantalla de inicio”.</div>
 </div>
 
@@ -787,11 +796,17 @@ function renderLive(){
   const box = $('#lSongs'); box.innerHTML = '';
   if (!arr.length) box.innerHTML = '<div class="empty">Este set list no tiene canciones.<br>Agrégalas en la pestaña Set Lists.</div>';
   arr.forEach((x, i) => {
-    const r = document.createElement('div'); r.className = 'si' + (i === L.idx ? ' cur' : '');
-    r.innerHTML = `<span class="num">${i+1}</span><div class="main"><div class="nm"></div><div class="meta">${x.beats}/${x.den} · ${SUBN[x.subdiv] || ''}</div></div><span class="bpmr">${x.bpm}</span>`;
+    const r = document.createElement('div'); r.className = 'si drg' + (i === L.idx ? ' cur' : ''); r.dataset.i = i;
+    r.innerHTML = `<span class="grip" aria-label="Arrastrar">≡</span><span class="num">${i+1}</span><div class="main"><div class="nm"></div><div class="meta">${x.beats}/${x.den} · ${SUBN[x.subdiv] || ''}</div></div><span class="bpmr">${x.bpm}</span>`;
     r.querySelector('.nm').textContent = x.name;
-    r.addEventListener('click', () => gotoSong(i));
+    r.addEventListener('click', () => { if (Date.now() - lastDragEnd < 400) return; gotoSong(i); });
     box.appendChild(r);
+  });
+  enableDrag(box, ord => {
+    const curId = l.songIds[L.idx];
+    l.songIds = ord.map(k => l.songIds[k]);
+    const k = l.songIds.indexOf(curId); if (k >= 0) L.idx = k;
+    save(); renderLive();
   });
 }
 function renderSongs(){
@@ -884,9 +899,10 @@ function moveDrag(y){
   r.style.transform = `translateY(${y - d.grab - top}px)`;
   d.box.querySelectorAll('.si.drg').forEach((x, k) => { const n = x.querySelector('.num'); if (n) n.textContent = k + 1; });
 }
+let lastDragEnd = 0;
 function endDrag(){
   const d = dragState; if (!d) return;
-  dragState = null;
+  dragState = null; lastDragEnd = Date.now();
   d.row.classList.remove('dragging'); d.box.classList.remove('sorting'); d.row.style.transform = '';
   const now = order(d.box);
   if (now.join() !== d.startOrder.join()) d.onDrop(now);
