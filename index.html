@@ -226,14 +226,28 @@ input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#f
 .fhit.nobpm{opacity:.5}.fhit.nobpm .b{font-family:inherit;font-size:12px;color:var(--mut)}
 .fhit.sel{border-color:var(--acc);background:rgba(var(--accRGB),.14)}
 
+.rst{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;flex:none;padding:0}
+.rst svg{width:28px;height:28px;fill:var(--txt)}
+.rst.hit,.cplay.hit{box-shadow:0 0 0 3px var(--acc2)}
+#cin{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;z-index:6;background:rgba(14,15,18,.72);opacity:0;transition:opacity .12s}
+#cin.show{opacity:1}
+#cin .lbl{font-size:16px;letter-spacing:.3em;text-transform:uppercase;color:var(--acc2);font-weight:600}
+#cin .n{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:220px;line-height:1;color:var(--txt)}
+#cin.first .n{color:var(--acc)}
+
+/* Live: song panel and buttons stay fixed while the song list scrolls */
+.lfix{position:sticky;top:0;z-index:4;background:var(--bg);display:flex;flex-direction:column;gap:12px;margin:-12px -16px 0;padding:12px 16px 12px;border-bottom:1px solid var(--line)}
+
 /* installed app: respect notch and home bar */
 .view{padding-top:calc(12px + env(safe-area-inset-top));padding-bottom:calc(var(--tabh) + 18px + env(safe-area-inset-bottom))}
 .tabs{height:calc(var(--tabh) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom)}
 .sheet{padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+.lfix{margin-top:calc(-12px - env(safe-area-inset-top));padding-top:calc(12px + env(safe-area-inset-top))}
 </style>
 </head>
 <body>
 <div id="flash"></div>
+<div id="cin"><div class="lbl">Entrada</div><div class="n"></div></div>
 <div class="app">
 
 <!-- ============ PRACTICE ============ -->
@@ -275,6 +289,7 @@ input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#f
   </div>
   <div class="transport">
     <button class="tap" id="tapBtn">TAP</button>
+    <button class="rst" id="pRst" aria-label="Reiniciar con cuenta"><svg viewBox="0 0 24 24"><path d="M12 4a8 8 0 1 1-7.4 5h2.2A6 6 0 1 0 12 6v3L7.5 5 12 1z"/></svg></button>
     <button class="play" id="pPlay" aria-label="Iniciar"><svg viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg></button>
   </div>
   <button class="ghost" id="toSong" style="flex:none">＋ Guardar estos ajustes en Songs</button>
@@ -292,6 +307,7 @@ input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#f
   </div>
   <!-- Level 2: songs of the chosen set list + player -->
   <div id="liveSet" style="display:none;flex-direction:column;gap:12px">
+    <div class="lfix">
     <div class="head">
       <button class="back" id="liveBack">‹ Set lists</button>
       <h2 id="lList" style="font-size:18px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></h2>
@@ -313,6 +329,7 @@ input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#f
       <button class="cplay" id="lPlay" aria-label="Play"><svg viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg></button>
       <button class="cstop" id="lStop" aria-label="Stop"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
       <button id="lNextBtn" aria-label="Avanzar"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+    </div>
     </div>
     <div class="songs lsongs" id="lSongs"></div>
   </div>
@@ -386,6 +403,11 @@ input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#f
     <button data-o="stereo">Normal</button><button data-o="left">Solo izquierdo</button><button data-o="bal">Cable TRS</button>
   </div>
   <div class="note" style="margin-top:-6px">Usa <b>Cable TRS</b> si conectas el celular con un plug de 6.3 de dos anillos a una entrada balanceada (consola, ADA8200, interfaz): el clic llega completo y más fuerte. Con audífonos normales deja <b>Normal</b>.</div>
+  <div class="clbl">Cuenta de entrada</div>
+  <div class="sounds" id="cinSeg">
+    <button data-c="0">Sin cuenta</button><button data-c="1">1 compás</button><button data-c="2">2 compases</button>
+  </div>
+  <div class="note" style="margin-top:-6px">Suena con un tono distinto y muestra la cuenta en grande. Con ↺ vuelves a empezar con cuenta sin detener el metrónomo.</div>
   <div class="toggle"><span>Mantener pantalla encendida</span><button class="sw" id="wakeSw"></button></div>
   <div class="note">En iPhone, si no escuchas nada, desactiva el modo silencio. Para instalarla: en Safari toca ••• → Compartir → “Añadir a pantalla de inicio”.</div>
 </div>
@@ -404,6 +426,7 @@ const DENS = [2, 4, 8, 16];
 const TABS = ['practice','live','sets','songs'];
 const SUBN = { 1:'♩', 2:'♫', 3:'³', 4:'♬' };
 const PLAY_SVG = '<path d="M7 4.5v15l13-7.5z"/>', STOP_SVG = '<rect x="6" y="6" width="12" height="12" rx="2"/>';
+const RST_SVG = '<path d="M12 4a8 8 0 1 1-7.4 5h2.2A6 6 0 1 0 12 6v3L7.5 5 12 1z"/>';
 const LIST_ICO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="17" r="2.5"/><path d="M20.5 17V9l-3 1"/></svg>';
 
 function defAcc(nb, nd){
@@ -424,7 +447,7 @@ function cleanSong(s){
 }
 
 /* ---------- State ---------- */
-let S = { sound:'click', volume:1.5, subVol:0.5, flashMode:'off', flashInt:0.25, wake:true, theme:'naranja', tab:'practice' };
+let S = { countBars:1, sound:'click', volume:1.5, subVol:0.5, flashMode:'off', flashInt:0.25, wake:true, theme:'naranja', tab:'practice' };
 let P = { bpm:120, beats:4, den:4, subdiv:1, accents:[2,1,1,1] };
 // D: library of songs + set lists that reference songs by id
 let D = { songs:[], lists:[] };
@@ -437,7 +460,7 @@ function load(){
     if (d){
       if (d.settings){
         const o = d.settings;
-        ['sound','volume','subVol','flashMode','flashInt','wake','theme','tab','volV2','out'].forEach(k => { if (o[k] !== undefined) S[k] = o[k]; });
+        ['sound','volume','subVol','flashMode','flashInt','wake','theme','tab','volV2','out','countBars'].forEach(k => { if (o[k] !== undefined) S[k] = o[k]; });
         if (!d.practice && o.bpm) P = { bpm:o.bpm, beats:o.beats || 4, den:o.den || 4, subdiv:o.subdiv || 1, accents:o.accents };
       }
       if (d.practice) Object.assign(P, d.practice);
@@ -521,7 +544,7 @@ function voice(t, level){
   const amp = level === 2 ? 1 : level === 1 ? 0.62 : 0.62 * S.subVol;
   if (amp < 0.002) return;
   const hi = level === 2, sub = level < 1;
-  const g = ctx.createGain(); g.connect(master);
+  const g = ctx.createGain(); g.connect(runGain || master);
   switch (S.sound){
     case 'click': osc('square', hi ? 2000 : sub ? 1000 : 1400, t, 0.05, g); env(g, t, amp*0.98, 0.035); break;
     case 'wood': { const f = hi ? 1650 : sub ? 950 : 1250; const o = osc('sine', f*1.6, t, 0.09, g); o.frequency.exponentialRampToValueAtTime(f, t + 0.012); env(g, t, amp*0.97, 0.065); break; }
@@ -547,9 +570,30 @@ function voice(t, level){
 
 /* ---------- Scheduler ---------- */
 let playing = false, timer = null, nextT = 0, beatI = 0, subI = 0, queue = [];
+let runGain = null, cinLeft = 0, cinTotal = 0;
+function newRun(){
+  if (runGain){ const old = runGain; try{ old.gain.setTargetAtTime(0, ctx.currentTime, 0.005); setTimeout(() => { try{ old.disconnect(); }catch(_){} }, 200); }catch(_){} }
+  runGain = ctx.createGain(); runGain.connect(master);
+}
+function countVoice(t, first){
+  const g = ctx.createGain(); g.connect(runGain || master);
+  osc('sine', first ? 1600 : 1200, t, 0.09, g); osc('square', first ? 3200 : 2400, t, 0.02, g);
+  env(g, t, first ? 0.95 : 0.75, 0.07);
+}
+function setupCountIn(){
+  const c = cfg(); cinTotal = cinLeft = c ? (S.countBars || 0) * c.beats : 0;
+}
 function scheduler(){
   const c = cfg(); if (!c){ stop(); return; }
   while (nextT < ctx.currentTime + 0.12){
+    if (cinLeft > 0){
+      const k = cinTotal - cinLeft;
+      countVoice(nextT, k % c.beats === 0);
+      queue.push({ t:nextT, cin:cinLeft, b:k % c.beats });
+      cinLeft--; nextT += 60 / c.bpm;
+      if (cinLeft === 0){ beatI = 0; subI = 0; queue.push({ t:nextT - 0.001, cinEnd:true }); }
+      continue;
+    }
     const b = beatI % c.beats;
     const lvl = subI === 0 ? (c.accents[b] ?? 1) : 0.5;
     if (lvl > 0) voice(nextT, lvl);
@@ -559,32 +603,55 @@ function scheduler(){
     if (subI >= c.subdiv){ subI = 0; beatI = (beatI + 1) % c.beats; }
   }
 }
+const cinEl = () => $('#cin');
+function showCin(n, b){
+  const el = cinEl(); el.querySelector('.n').textContent = n; el.classList.add('show');
+  el.classList.toggle('first', b === 0);
+  el.querySelector('.n').animate([{ transform:'scale(1.25)' }, { transform:'scale(1)' }], { duration:160, easing:'ease-out' });
+}
+function hideCin(){ const el = cinEl(); if (el) el.classList.remove('show'); }
 function setPlayIcons(){
   const p = $('#pPlay'); p.classList.toggle('on', playing && playSrc === 'practice');
   p.querySelector('svg').innerHTML = playing && playSrc === 'practice' ? STOP_SVG : PLAY_SVG;
-  $('#lPlay').classList.toggle('on', playing && playSrc === 'live');
+  const lp = $('#lPlay'), liveOn = playing && playSrc === 'live';
+  lp.classList.toggle('on', liveOn);
+  lp.querySelector('svg').innerHTML = liveOn ? RST_SVG : PLAY_SVG;
+  lp.setAttribute('aria-label', liveOn ? 'Reiniciar' : 'Play');
 }
 function start(){
   playSrc = srcFor(S.tab);
   if (!cfg()) return;
-  ensureCtx();
-  playing = true; beatI = 0; subI = 0; queue = [];
+  ensureCtx(); newRun();
+  playing = true; beatI = 0; subI = 0; queue = []; setupCountIn();
   nextT = ctx.currentTime + 0.08;
   clearInterval(timer); scheduler(); timer = setInterval(scheduler, 25);
   setPlayIcons(); if (S.wake) lockOn();
 }
+// Start again from bar 1 (with count-in) without having to stop first
+function restart(){
+  if (!playing){ start(); return; }
+  newRun(); queue = []; beatI = 0; subI = 0; setupCountIn(); hideCin();
+  $$('.dot').forEach(d => d.classList.remove('on'));
+  nextT = ctx.currentTime + 0.08;
+  const b = S.tab === 'live' ? $('#lPlay') : $('#pRst'); if (b){ b.classList.add('hit'); setTimeout(() => b.classList.remove('hit'), 150); }
+}
 function stop(){
-  playing = false; clearInterval(timer); queue = [];
+  if (runGain){ newRun(); }
+  playing = false; clearInterval(timer); queue = []; cinLeft = 0; hideCin();
   setPlayIcons(); $$('.dot').forEach(d => d.classList.remove('on')); lockOff();
 }
 $('#pPlay').addEventListener('click', () => playing ? stop() : start());
-$('#lPlay').addEventListener('click', () => { if (playing && playSrc === 'live') { beatI = 0; subI = 0; } else { if (playing) stop(); start(); } });
+$('#lPlay').addEventListener('click', () => { if (playing && playSrc === 'live') restart(); else { if (playing) stop(); start(); } });
+$('#pRst').addEventListener('click', () => { if (playing && playSrc !== 'practice') stop(); restart(); });
 $('#lStop').addEventListener('click', stop);
 
 function draw(){
   if (ctx){
     while (queue.length && queue[0].t <= ctx.currentTime){
-      const n = queue.shift(); if (n.s === 0) showBeat(n.b);
+      const n = queue.shift();
+      if (n.cinEnd) hideCin();
+      else if (n.cin) showCin(n.cin, n.b);
+      else if (n.s === 0) showBeat(n.b);
     }
   }
   requestAnimationFrame(draw);
@@ -870,6 +937,7 @@ document.addEventListener('keydown', e => {
   if (e.target.matches('input,textarea,select') || $('#modal').classList.contains('open')) return;
   if (e.code === 'Space'){ e.preventDefault(); if (S.tab === 'live') $('#lPlay').click(); else if (S.tab === 'practice') $('#pPlay').click(); }
   if (e.code === 'Escape') stop();
+  if (e.code === 'KeyR' && (S.tab === 'live' || S.tab === 'practice')){ if (playing && playSrc !== srcFor(S.tab)) stop(); restart(); }
   if (S.tab === 'practice'){ if (e.code === 'ArrowUp') setBpm(P.bpm + 1); if (e.code === 'ArrowDown') setBpm(P.bpm - 1); }
   if (S.tab === 'live' && L.list){ if (e.code === 'ArrowRight') gotoSong(L.idx + 1); if (e.code === 'ArrowLeft') gotoSong(L.idx - 1); }
 });
@@ -1005,6 +1073,7 @@ function renderSettings(){
   $('#flashIntBox').style.display = S.flashMode === 'off' ? 'none' : '';
   $('#wakeSw').classList.toggle('on', S.wake);
   $$('#outSeg button').forEach(b => b.classList.toggle('act', b.dataset.o === (S.out || 'stereo')));
+  $$('#cinSeg button').forEach(b => b.classList.toggle('act', +b.dataset.c === (S.countBars || 0)));
 }
 function openSet(){ renderSettings(); $('#backdrop').classList.add('open'); $('#setSheet').classList.add('open'); }
 function closeSet(){ $('#backdrop').classList.remove('open'); $('#setSheet').classList.remove('open'); }
@@ -1023,6 +1092,7 @@ $('#flashInt').addEventListener('input', e => {
   flashEl.style.background = 'var(--acc)';
   try{ flashEl.animate([{ opacity:S.flashInt }, { opacity:0 }], { duration:250 }); }catch(_){}
 });
+$$('#cinSeg button').forEach(b => b.addEventListener('click', () => { S.countBars = +b.dataset.c; save(); renderSettings(); }));
 $$('#outSeg button').forEach(b => b.addEventListener('click', () => { S.out = b.dataset.o; save(); renderSettings(); applyOut(); }));
 $('#wakeSw').addEventListener('click', () => { S.wake = !S.wake; save(); renderSettings(); if (playing){ S.wake ? lockOn() : lockOff(); } });
 
