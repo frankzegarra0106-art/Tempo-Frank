@@ -238,6 +238,32 @@ input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#f
 /* Live: song panel and buttons stay fixed while the song list scrolls */
 .lfix{position:sticky;top:0;z-index:4;background:var(--bg);display:flex;flex-direction:column;gap:12px;margin:-12px -16px 0;padding:12px 16px 12px;border-bottom:1px solid var(--line)}
 
+/* Live: compact layout to see more songs */
+.lfix{gap:8px;padding-top:8px;padding-bottom:8px}
+.lfix .head{min-height:36px}
+.lfix .back{padding:6px 10px 6px 6px;font-size:14px}
+.lfix .icon{width:38px;height:38px}
+.player{padding:8px 12px 10px;gap:6px;border-radius:16px}
+.prow{gap:10px}
+.prow .big{font-size:72px}
+.pinfo .lname{font-size:21px;line-height:1.1}
+.pinfo .lpos{font-size:11px}
+.pinfo .lmeta{margin-top:5px;gap:6px}
+.player .chip{font-size:19px;padding:0 10px}
+.player .bpmlbl{font-size:10px}
+.player .dots{height:30px}
+.player .dot.l2{height:28px}.player .dot.l1,.player .dot.l0{height:18px}
+.ctrl{gap:6px}
+.ctrl button{height:56px;border-radius:14px}
+.ctrl svg{width:26px;height:26px}
+.lsongs{gap:4px}
+.lsongs .si{padding:6px 10px;border-radius:12px}
+.lsongs .si .main{padding:0}
+.lsongs .si .nm{font-size:16px}
+.lsongs .si .meta{font-size:11px}
+.lsongs .si .bpmr{font-size:21px}
+#liveSet{gap:8px!important}
+
 /* installed app: respect notch and home bar */
 .view{padding-top:calc(12px + env(safe-area-inset-top));padding-bottom:calc(var(--tabh) + 18px + env(safe-area-inset-bottom))}
 .tabs{height:calc(var(--tabh) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom)}
