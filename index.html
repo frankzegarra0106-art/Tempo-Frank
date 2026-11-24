@@ -393,6 +393,11 @@ input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#f
   <div class="head"><div style="flex:1"><div class="sub">Biblioteca</div><h2>Songs</h2></div></div>
   <button class="primary" id="addSong">＋ Nueva canción</button>
   <div class="songs" id="songs"></div>
+  <div class="row">
+    <button class="ghost" id="songsExport">⬆ Exportar canciones</button>
+    <button class="ghost" id="songsImport">⬇ Importar canciones</button>
+  </div>
+  <input type="file" id="songsFile" accept=".json,application/json,text/plain" style="display:none">
   <div class="note">Aquí creas todas tus canciones con su BPM, compás y acentos. Luego las agregas a tus set lists en la pestaña Set Lists.</div>
 </section>
 
@@ -462,7 +467,9 @@ input::selection,textarea::selection{background:rgba(var(--accRGB),.45);color:#f
   </div>
   <div class="note" style="margin-top:-6px">Suena con un tono distinto y muestra la cuenta en grande. Con ↺ vuelves a empezar con cuenta sin detener el metrónomo.</div>
   <div class="toggle"><span>Mantener pantalla encendida</span><button class="sw" id="wakeSw"></button></div>
-  <div class="note" style="text-align:center;color:var(--acc2)">Versión 11</div>
+  <button class="ghost" id="testSnd" style="flex:none">🔊 Probar sonido</button>
+  <div class="note" id="sndInfo" style="text-align:center"></div>
+  <div class="note" style="text-align:center;color:var(--acc2)">Versión 13</div>
   <div class="note">En iPhone, si no escuchas nada, desactiva el modo silencio. Para instalarla: en Safari toca ••• → Compartir → “Añadir a pantalla de inicio”.</div>
 </div>
 
@@ -565,7 +572,13 @@ function applyOut(){
   else if (S.out === 'bal'){ limNode.connect(outMerger, 0, 0); limNode.connect(outInv); }
   else { limNode.connect(outMerger, 0, 0); limNode.connect(outMerger, 0, 1); }
 }
+// If the audio engine got stuck (phone slept, output device changed), throw it away and build a new one
+function resetCtx(){
+  try{ if (ctx) ctx.close(); }catch(_){}
+  ctx = null; master = null; limNode = null; outMerger = null; outInv = null; runGain = null;
+}
 function ensureCtx(){
+  if (ctx && (ctx.state === 'closed' || ctx.state === 'interrupted')) resetCtx();
   if (!ctx){
     const AC = window.AudioContext || window.webkitAudioContext;
     ctx = new AC({ latencyHint:'interactive' });
@@ -680,7 +693,28 @@ function start(){
   nextT = ctx.currentTime + 0.08;
   clearInterval(timer); scheduler(); timer = setInterval(scheduler, 25);
   setPlayIcons(); if (S.wake) lockOn();
+  watchAudio();
 }
+// If the engine has not started running shortly after Play, rebuild it and start again
+let watchT = null, rebuilt = false;
+function watchAudio(){
+  clearTimeout(watchT);
+  const c0 = ctx;
+  watchT = setTimeout(() => {
+    if (!playing || ctx !== c0) return;
+    if (ctx.state !== 'running' && !rebuilt){
+      rebuilt = true;
+      stop(); resetCtx(); start();
+    }
+  }, 700);
+}
+navigator.mediaDevices && navigator.mediaDevices.addEventListener && navigator.mediaDevices.addEventListener('devicechange', () => {
+  // a new output (USB, cable, Bluetooth) was connected or removed: use a fresh engine next time
+  if (!playing){ resetCtx(); rebuilt = false; }
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && ctx && ctx.state !== 'running' && !playing){ resetCtx(); rebuilt = false; }
+});
 // Start again from bar 1 (with count-in) without having to stop first
 function restart(){
   if (!playing){ start(); return; }
@@ -1106,6 +1140,83 @@ $('#importBtn').addEventListener('click', () => modal({ title:'Importar', msg:'P
     }
   }}));
 
+
+/* ---------- Export / import songs (Songs tab) ---------- */
+function songsPayload(list){ return JSON.stringify({ app:'metronomo', type:'songs', v:1, songs:list.map(x => ({ name:x.name, bpm:x.bpm, beats:x.beats, den:x.den, subdiv:x.subdiv, accents:x.accents })) }, null, 1); }
+function fileName(){ const d = new Date(); return `canciones-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}.json`; }
+$('#songsExport').addEventListener('click', () => {
+  if (!D.songs.length){ modal({ title:'Sin canciones', msg:'Todavía no tienes canciones para exportar.', okText:'OK', cancelText:'Cerrar' }); return; }
+  modal({ title:'Exportar canciones', msg:'Marca las canciones que quieres exportar (todas están marcadas).',
+    fields:[{ k:'pick', t:'checks', opts:D.songs.map(x => ({ v:x.id, t:x.name, m:x.bpm + ' BPM · ' + x.beats + '/' + x.den })) },
+            { k:'how', l:'Cómo exportar', t:'select', v:'share', opts:[['share','Compartir (WhatsApp, correo, Drive…)'],['file','Guardar archivo en el equipo'],['text','Copiar como texto']] }],
+    okText:'Exportar',
+    onOk: async (v, box) => {
+      const sel = D.songs.filter(x => v.pick.includes(x.id));
+      if (!sel.length){ box.querySelector('.msg').textContent = 'Marca al menos una canción.'; return false; }
+      const txt = songsPayload(sel), name = fileName(), msg = box.querySelector('.msg');
+      if (v.how === 'share'){
+        try{
+          const f = new File([txt], name, { type:'application/json' });
+          if (navigator.canShare && navigator.canShare({ files:[f] })){ await navigator.share({ files:[f], title:'Canciones del metrónomo' }); return; }
+          await navigator.share({ title:'Canciones del metrónomo', text:txt }); return;
+        }catch(e){ if (e && e.name === 'AbortError') return false; msg.textContent = 'Este equipo no permite compartir desde aquí. Elige “Guardar archivo” o “Copiar como texto”.'; return false; }
+      }
+      if (v.how === 'file'){
+        try{
+          const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type:'application/json' })); a.download = name;
+          document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+          msg.textContent = `Guardado como “${name}” en Descargas.`; box.querySelector('.ok').textContent = 'Listo'; box.querySelector('.ok').onclick = () => $('#modal').classList.remove('open');
+          return false;
+        }catch(e){ msg.textContent = 'No se pudo guardar el archivo. Usa “Copiar como texto”.'; return false; }
+      }
+      try{ await navigator.clipboard.writeText(txt); msg.textContent = `✓ Copiadas ${sel.length} canciones. Pégalas en WhatsApp o en una nota.`; }
+      catch(e){ msg.textContent = 'No se pudo copiar automáticamente.'; }
+      box.querySelector('.ok').textContent = 'Listo'; box.querySelector('.ok').onclick = () => $('#modal').classList.remove('open');
+      return false;
+    }});
+  setTimeout(() => $$('#mbox .chk input').forEach(cb => { cb.checked = true; cb.dispatchEvent(new Event('change')); }), 0);
+});
+function importSongs(text){
+  let d; try{ d = JSON.parse(text); }catch(e){ return { err:'No se pudo leer. Asegúrate de pegar el texto completo o elegir el archivo exportado.' }; }
+  let src = [];
+  if (Array.isArray(d)) src = d;
+  else if (Array.isArray(d.songs)) src = d.songs;
+  else if (Array.isArray(d.lists)) d.lists.forEach(l => (l.songs || []).forEach(x => src.push(x)));
+  if (!src.length) return { err:'Ese archivo no tiene canciones.' };
+  let added = 0, updated = 0;
+  src.forEach(x => {
+    const c = cleanSong({ ...x, id:null });
+    const ex = D.songs.find(y => y.name.trim().toLowerCase() === c.name.trim().toLowerCase());
+    if (ex){ Object.assign(ex, { bpm:c.bpm, beats:c.beats, den:c.den, subdiv:c.subdiv, accents:c.accents }); updated++; }
+    else { D.songs.push(c); added++; }
+  });
+  save(); renderAll();
+  return { added, updated };
+}
+function importDone(r){
+  modal({ title:'Importación lista', msg:`Nuevas: <b>${r.added}</b> · Actualizadas: <b>${r.updated}</b><br><span style="font-size:12px">Las canciones con el mismo nombre se actualizaron con el tempo y compás importados.</span>`, okText:'OK', cancelText:'Cerrar' });
+}
+$('#songsImport').addEventListener('click', () => {
+  modal({ title:'Importar canciones', msg:'Elige el archivo exportado o pega el texto.',
+    fields:[{ k:'data', l:'Texto exportado (opcional si eliges archivo)', t:'textarea', v:'' }],
+    okText:'Importar texto', cancelText:'Cancelar',
+    onOk: (v, box) => {
+      if (!v.data.trim()){ box.querySelector('.msg').textContent = 'Pega el texto o toca “Elegir archivo”.'; return false; }
+      const r = importSongs(v.data);
+      if (r.err){ const m = box.querySelector('.msg'); m.textContent = r.err; m.style.color = 'var(--bad)'; return false; }
+      setTimeout(() => importDone(r), 50);
+    }});
+  const btn = document.createElement('button'); btn.className = 'primary'; btn.textContent = '📂 Elegir archivo'; btn.type = 'button';
+  btn.onclick = () => { $('#songsFile').value = ''; $('#songsFile').click(); };
+  $('#mbox .msg').after(btn);
+});
+$('#songsFile').addEventListener('change', async e => {
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  const r = importSongs(await f.text());
+  $('#modal').classList.remove('open');
+  if (r.err) modal({ title:'No se pudo importar', msg:r.err, okText:'OK', cancelText:'Cerrar' }); else importDone(r);
+});
+
 /* ---------- Settings ---------- */
 const THEMES = {
   naranja:{ n:'Naranja', acc:'#ff7a1a', acc2:'#ffb36b', rgb:'255,122,26' },
@@ -1145,6 +1256,18 @@ $$('#sounds button').forEach(b => b.addEventListener('click', () => {
   S.sound = b.dataset.snd; save(); renderSettings();
   ensureCtx(); const t = ctx.currentTime + 0.03; voice(t, 2); voice(t + 0.28, 1);
 }));
+$('#testSnd').addEventListener('click', async () => {
+  const info = $('#sndInfo');
+  try{
+    ensureCtx();
+    try{ await ctx.resume(); }catch(_){}
+    if (ctx.state !== 'running'){ resetCtx(); ensureCtx(); try{ await ctx.resume(); }catch(_){} }
+    const t = ctx.currentTime + 0.05; voice(t, 2); voice(t + 0.3, 1); voice(t + 0.6, 1);
+    const outs = { stereo:'Normal', left:'Solo izquierdo', bal:'Cable TRS' };
+    info.innerHTML = `Audio: <b>${ctx.state === 'running' ? 'activo ✓' : ctx.state}</b> · ${Math.round(ctx.sampleRate/100)/10} kHz · Volumen ${Math.round(S.volume*100)}% · Salida ${outs[S.out || 'stereo']}`;
+    info.style.color = ctx.state === 'running' ? 'var(--acc2)' : 'var(--bad)';
+  }catch(e){ info.textContent = 'Error de audio: ' + (e && e.message || e); info.style.color = 'var(--bad)'; }
+});
 $('#vol').addEventListener('input', e => { S.volume = e.target.value / 100; $('#volTxt').textContent = e.target.value + '%'; if (master) master.gain.value = S.volume; save(); });
 $('#subvol').addEventListener('input', e => { S.subVol = e.target.value / 100; save(); });
 $$('#flashSeg button').forEach(b => b.addEventListener('click', () => { S.flashMode = b.dataset.f; save(); renderSettings(); }));
